@@ -111,7 +111,7 @@
 				async function fetchSeats() {
 					const response = await fetch(`/seats?flightId=${flightId}`);
 					const seats = await response.json();
-					createSeatGrid(JSON.parse(seats));
+					createSeatGrid(seats);
 				}
 
 				async function bookSeat(seatNumber) {

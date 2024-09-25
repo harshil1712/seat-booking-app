@@ -60,7 +60,7 @@ export class MyDurableObject extends DurableObject {
 			results.push({ seatNumber: row.seatId, occupant: row.occupant });
 		}
 
-		return JSON.stringify(results);
+		return results;
 	}
 
 	// Assign a seat to a passenger.
@@ -70,10 +70,10 @@ export class MyDurableObject extends DurableObject {
 		let result = [...cursor][0]; // Get the first result from the cursor.
 
 		if (!result) {
-			return new Response('Seat not available', { status: 400 });
+			return { message: 'Seat not available', status: 400 };
 		}
 		if (result.occupant !== null) {
-			return new Response('Seat not available', { status: 400 });
+			return { message: 'Seat not available', status: 400 };
 		}
 
 		// If the occupant is already in a different seat, remove them.
@@ -87,7 +87,7 @@ export class MyDurableObject extends DurableObject {
 
 		// Broadcast the updated seats.
 		this.broadcastSeats();
-		return new Response(`Seat ${seatId} booked successfully`);
+		return { message: `Seat ${seatId} booked successfully`, status: 200 };
 	}
 
 	private handleWebSocket(request: Request) {
@@ -101,7 +101,7 @@ export class MyDurableObject extends DurableObject {
 	}
 
 	private broadcastSeats() {
-		this.ctx.getWebSockets().forEach((ws) => ws.send(this.getSeats()));
+		this.ctx.getWebSockets().forEach((ws) => ws.send(JSON.stringify(this.getSeats())));
 	}
 
 	async fetch(request: Request) {
@@ -138,7 +138,7 @@ export default {
 				seatNumber: string;
 				name: string;
 			};
-			return stub.assignSeat(seatNumber, name);
+			return new Response(JSON.stringify(stub.assignSeat(seatNumber, name)));
 		} else if (request.headers.get('Upgrade') === 'websocket') {
 			return stub.fetch(request);
 		}
