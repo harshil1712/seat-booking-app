@@ -3,6 +3,8 @@ name = "seat-book"
 main = "src/index.ts"
 compatibility_date = "2024-09-19"
 
+[experimental_assets]
+directory = "public"
 # Automatically place your workloads in an optimal location to minimize latency.
 # If you are running back-end logic in a Worker, running it closer to your back-end infrastructure
 # rather than the end user may result in better performance.
@@ -57,7 +59,7 @@ class_name = "MyDurableObject"
 # Docs: https://developers.cloudflare.com/workers/wrangler/configuration/#migrations
 [[migrations]]
 tag = "v1"
-new_classes = ["MyDurableObject"]
+new_sqlite_classes = ["MyDurableObject"]
 
 # Bind a Hyperdrive configuration. Use to accelerate access to your existing databases from Cloudflare Workers.
 # Docs: https://developers.cloudflare.com/workers/wrangler/configuration/#hyperdrive

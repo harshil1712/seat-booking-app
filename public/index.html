@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Flight Seat Booking</title>
+		<style>
+			body {
+				font-family: Arial, sans-serif;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				height: 100vh;
+				margin: 0;
+				background-color: #f0f0f0;
+			}
+			.booking-container {
+				background-color: white;
+				padding: 20px;
+				border-radius: 8px;
+				box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+			}
+			.seat-grid {
+				display: grid;
+				grid-template-columns: repeat(7, 1fr);
+				gap: 10px;
+				margin-top: 20px;
+			}
+			.aisle {
+				grid-column: 4;
+			}
+			.seat {
+				width: 40px;
+				height: 40px;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				border: 1px solid #ccc;
+				cursor: pointer;
+			}
+			.seat.available {
+				background-color: #5dbf61ba;
+				color: white;
+			}
+			.seat.unavailable {
+				background-color: #f4433673;
+				color: white;
+				cursor: not-allowed;
+			}
+			.airplane {
+				display: flex;
+				flex-direction: column;
+				align-items: center;
+				background-color: #f0f0f0;
+				padding: 20px;
+				border-radius: 20px;
+			}
+		</style>
+	</head>
+	<body>
+		<div class="booking-container">
+			<h2 id="title"></h2>
+			<div class="airplane">
+				<div id="seatGrid" class="seat-grid"></div>
+			</div>
+		</div>
+
+		<script>
+			const seatGrid = document.getElementById('seatGrid');
+			const title = document.getElementById('title');
+
+			const flightId = window.location.search.split('=')[1];
+
+			if (flightId === undefined) {
+				title.textContent = 'No Flight ID provided';
+				seatGrid.innerHTML = '<p>Add `flightId` to the query string</p>';
+			} else {
+				handleBooking();
+			}
+
+			function handleBooking() {
+				const ws = new WebSocket(`ws://localhost:8787/ws?flightId=${flightId}`);
+
+				title.textContent = `Book seat for flight ${flightId}`;
+
+				ws.onopen = () => {
+					console.log('Connected to WebSocket server');
+				};
+
+				function createSeatGrid(seats) {
+					seatGrid.innerHTML = '';
+					for (let row = 1; row <= 10; row++) {
+						for (let col = 0; col < 6; col++) {
+							if (col === 3) {
+								const aisle = document.createElement('div');
+								aisle.className = 'aisle';
+								seatGrid.appendChild(aisle);
+							}
+
+							const seatNumber = `${row}${String.fromCharCode(65 + col)}`;
+							const seat = seats.find((s) => s.seatNumber === seatNumber);
+							const seatElement = document.createElement('div');
+							seatElement.className = `seat ${seat && seat.occupant ? 'unavailable' : 'available'}`;
+							seatElement.textContent = seatNumber;
+							seatElement.onclick = () => bookSeat(seatNumber);
+							seatGrid.appendChild(seatElement);
+						}
+					}
+				}
+
+				async function fetchSeats() {
+					const response = await fetch(`/seats?flightId=${flightId}`);
+					const seats = await response.json();
+					createSeatGrid(JSON.parse(seats));
+				}
+
+				async function bookSeat(seatNumber) {
+					const name = prompt('Please enter your name:');
+					if (!name) {
+						return; // User canceled the prompt
+					}
+
+					const response = await fetch(`book-seat?flightId=${flightId}`, {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({ seatNumber, name }),
+					});
+					const result = await response.text();
+					fetchSeats();
+				}
+
+				ws.onmessage = (event) => {
+					try {
+						const seats = JSON.parse(event.data);
+						createSeatGrid(seats);
+					} catch (error) {
+						console.error('Error parsing WebSocket message:', error);
+					}
+				};
+
+				ws.onerror = (error) => {
+					console.error('WebSocket error:', error);
+				};
+
+				ws.onclose = (event) => {
+					console.log('WebSocket connection closed:', event);
+				};
+
+				fetchSeats();
+			}
+		</script>
+	</body>
+</html>

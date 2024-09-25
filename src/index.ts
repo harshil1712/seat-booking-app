@@ -1,4 +1,4 @@
-import { DurableObject } from "cloudflare:workers";
+import { DurableObject } from 'cloudflare:workers';
 
 /**
  * Welcome to Cloudflare Workers! This is your first Durable Objects application.
@@ -15,26 +15,97 @@ import { DurableObject } from "cloudflare:workers";
 
 /** A Durable Object's behavior is defined in an exported Javascript class */
 export class MyDurableObject extends DurableObject {
-	/**
-	 * The constructor is invoked once upon creation of the Durable Object, i.e. the first call to
-	 * 	`DurableObjectStub::get` for a given identifier (no-op constructors can be omitted)
-	 *
-	 * @param ctx - The interface for interacting with Durable Object state
-	 * @param env - The interface to reference bindings declared in wrangler.toml
-	 */
+	sql = this.ctx.storage.sql;
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
+		this.initializeSeats();
 	}
 
-	/**
-	 * The Durable Object exposes an RPC method sayHello which will be invoked when when a Durable
-	 *  Object instance receives a request from a Worker via the same method invocation on the stub
-	 *
-	 * @param name - The name provided to a Durable Object instance from a Worker
-	 * @returns The greeting to be sent back to the Worker
-	 */
-	async sayHello(name: string): Promise<string> {
-		return `Hello, ${name}!`;
+	private initializeSeats() {
+		const cursor = this.sql.exec(`PRAGMA table_list`);
+
+		// Check if a table exists.
+		if ([...cursor].find((t) => t.name === 'seats')) {
+			console.log('Table already exists');
+			return;
+		}
+
+		this.sql.exec(`
+			  CREATE TABLE IF NOT EXISTS seats (
+			  seatId TEXT PRIMARY KEY,
+			  occupant TEXT
+			  )
+			`);
+
+		// For this demo, we populate the table with 60 seats.
+		// Since SQLite in DOs is fast, we can do a query per INSERT instead of batching them in a transaction.
+		for (let row = 1; row <= 10; row++) {
+			for (let col = 0; col < 6; col++) {
+				const seatNumber = `${row}${String.fromCharCode(65 + col)}`;
+				this.sql.exec(`INSERT INTO seats VALUES (?, null)`, seatNumber);
+			}
+		}
+	}
+
+	// Get all seats.
+	getSeats() {
+		let results = [];
+
+		// Query returns a cursor.
+		let cursor = this.sql.exec(`SELECT seatId, occupant FROM seats`);
+
+		// Cursors are iterable.
+		for (let row of cursor) {
+			// Each row is an object with a property for each column.
+			results.push({ seatNumber: row.seatId, occupant: row.occupant });
+		}
+
+		return JSON.stringify(results);
+	}
+
+	// Assign a seat to a passenger.
+	assignSeat(seatId: string, occupant: string) {
+		// Check that seat isn't occupied.
+		let cursor = this.sql.exec(`SELECT occupant FROM seats WHERE seatId = ?`, seatId);
+		let result = [...cursor][0]; // Get the first result from the cursor.
+
+		if (!result) {
+			return new Response('Seat not available', { status: 400 });
+		}
+		if (result.occupant !== null) {
+			return new Response('Seat not available', { status: 400 });
+		}
+
+		// If the occupant is already in a different seat, remove them.
+		this.sql.exec(`UPDATE seats SET occupant = null WHERE occupant = ?`, occupant);
+
+		// Assign the seat. Note: We don't have to worry that a concurrent request may
+		// have grabbed the seat between the two queries, because the code is synchronous
+		// (no `await`s) and the database is private to this Durable Object. Nothing else
+		// could have changed since we checked that the seat was available earlier!
+		this.sql.exec(`UPDATE seats SET occupant = ? WHERE seatId = ?`, occupant, seatId);
+
+		// Broadcast the updated seats.
+		this.broadcastSeats();
+		return new Response(`Seat ${seatId} booked successfully`);
+	}
+
+	private handleWebSocket(request: Request) {
+		console.log('WebSocket connection requested');
+		const [client, server] = Object.values(new WebSocketPair());
+
+		this.ctx.acceptWebSocket(server);
+		console.log('WebSocket connection established');
+
+		return new Response(null, { status: 101, webSocket: client });
+	}
+
+	private broadcastSeats() {
+		this.ctx.getWebSockets().forEach((ws) => ws.send(this.getSeats()));
+	}
+
+	async fetch(request: Request) {
+		return this.handleWebSocket(request);
 	}
 }
 
@@ -48,18 +119,30 @@ export default {
 	 * @returns The response to be sent back to the client
 	 */
 	async fetch(request, env, ctx): Promise<Response> {
-		// We will create a `DurableObjectId` using the pathname from the Worker request
-		// This id refers to a unique instance of our 'MyDurableObject' class above
-		let id: DurableObjectId = env.MY_DURABLE_OBJECT.idFromName(new URL(request.url).pathname);
+		const url = new URL(request.url);
+		const flightId = url.searchParams.get('flightId');
 
-		// This stub creates a communication channel with the Durable Object instance
-		// The Durable Object constructor will be invoked upon the first call for a given id
-		let stub = env.MY_DURABLE_OBJECT.get(id);
+		if (!flightId) {
+			return new Response('Flight ID not found. Provide flightId in the query parameter', { status: 404 });
+		}
 
-		// We call the `sayHello()` RPC method on the stub to invoke the method on the remote
-		// Durable Object instance
-		let greeting = await stub.sayHello("world");
+		const id = env.MY_DURABLE_OBJECT.idFromName(flightId);
+		const stub = env.MY_DURABLE_OBJECT.get(id);
 
-		return new Response(greeting);
+		if (request.method === 'GET' && url.pathname === '/seats') {
+			return new Response(JSON.stringify(await stub.getSeats()), {
+				headers: { 'Content-Type': 'application/json' },
+			});
+		} else if (request.method === 'POST' && url.pathname === '/book-seat') {
+			const { seatNumber, name } = (await request.json()) as {
+				seatNumber: string;
+				name: string;
+			};
+			return stub.assignSeat(seatNumber, name);
+		} else if (request.headers.get('Upgrade') === 'websocket') {
+			return stub.fetch(request);
+		}
+
+		return new Response('Not found', { status: 404 });
 	},
 } satisfies ExportedHandler<Env>;
