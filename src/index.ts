@@ -138,7 +138,8 @@ export default {
 				seatNumber: string;
 				name: string;
 			};
-			return new Response(JSON.stringify(stub.assignSeat(seatNumber, name)));
+			const result = await stub.assignSeat(seatNumber, name);
+			return new Response(JSON.stringify(result));
 		} else if (request.headers.get('Upgrade') === 'websocket') {
 			return stub.fetch(request);
 		}

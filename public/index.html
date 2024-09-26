@@ -71,6 +71,8 @@
 
 			const flightId = window.location.search.split('=')[1];
 
+			const hostname = window.location.hostname;
+
 			if (flightId === undefined) {
 				title.textContent = 'No Flight ID provided';
 				seatGrid.innerHTML = '<p>Add `flightId` to the query string</p>';
@@ -79,7 +81,13 @@
 			}
 
 			function handleBooking() {
-				const ws = new WebSocket(`ws://localhost:8787/ws?flightId=${flightId}`);
+				let ws;
+				if (hostname === 'localhost') {
+					const port = window.location.port;
+					ws = new WebSocket(`ws://${hostname}:${port}/ws?flightId=${flightId}`);
+				} else {
+					ws = new WebSocket(`wss://${hostname}/ws?flightId=${flightId}`);
+				}
 
 				title.textContent = `Book seat for flight ${flightId}`;
 
