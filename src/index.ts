@@ -14,7 +14,7 @@ import { DurableObject } from 'cloudflare:workers';
  */
 
 /** A Durable Object's behavior is defined in an exported Javascript class */
-export class MyDurableObject extends DurableObject {
+export class Flight extends DurableObject {
 	sql = this.ctx.storage.sql;
 	constructor(ctx: DurableObjectState, env: Env) {
 		super(ctx, env);
@@ -67,8 +67,7 @@ export class MyDurableObject extends DurableObject {
 	assignSeat(seatId: string, occupant: string) {
 		// Check that seat isn't occupied.
 		let cursor = this.sql.exec(`SELECT occupant FROM seats WHERE seatId = ?`, seatId);
-		let result = [...cursor][0]; // Get the first result from the cursor.
-
+		let result = cursor.toArray()[0]; // Get the first result from the cursor.
 		if (!result) {
 			return { message: 'Seat not available', status: 400 };
 		}
@@ -126,8 +125,8 @@ export default {
 			return new Response('Flight ID not found. Provide flightId in the query parameter', { status: 404 });
 		}
 
-		const id = env.MY_DURABLE_OBJECT.idFromName(flightId);
-		const stub = env.MY_DURABLE_OBJECT.get(id);
+		const id = env.FLIGHT.idFromName(flightId);
+		const stub = env.FLIGHT.get(id);
 
 		if (request.method === 'GET' && url.pathname === '/seats') {
 			return new Response(JSON.stringify(await stub.getSeats()), {
